@@ -192,3 +192,28 @@ fn parse_first_token<T: FromStr>(element: ElementRef) -> Option<T> {
         .next()
         .and_then(|token| token.parse().ok())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::standings::kattis::parse_kattis;
+    use std::fs::read_to_string;
+    use std::path::PathBuf;
+
+    fn test_file(name: &str) {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/resources")
+            .join(name);
+        let file = read_to_string(path).unwrap();
+        let _ = parse_kattis(file);
+    }
+
+    #[test]
+    fn test_ncpc22() {
+        test_file("ncpc22.standings")
+    }
+
+    #[test]
+    fn test_nwerc21() {
+        test_file("nwerc21.standings")
+    }
+}

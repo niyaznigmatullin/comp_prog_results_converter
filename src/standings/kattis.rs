@@ -46,46 +46,38 @@ impl Finder for ElementRef<'_> {
     }
 }
 
+fn has_class(element: &ElementRef, class_name: &str) -> bool {
+    element.has_class(
+        &LocalName::from(class_name),
+        CaseSensitivity::AsciiCaseInsensitive,
+    )
+}
+
+fn is_header2(element: &ElementRef) -> bool {
+    has_class(element, "table2-header")
+}
+
+fn is_solved(element: &ElementRef) -> bool {
+    has_class(element, "solved") || has_class(element, "first")
+}
 pub(crate) fn parse_kattis(s: String) -> Contest {
     let document = Html::parse_document(&s);
     let table = document
-        .select(&Selector::parse("table").unwrap())
+        .select(&Selector::parse("table.standings-table").unwrap())
         .next()
         .unwrap();
-    let problem_names = {
-        let row = table
-            .find_first("thead")
-            .and_then(|head| head.find_first("tr"))
-            .unwrap();
-        dbg!(row.inner_html());
-        row.find_all("th")
-            .into_iter()
-            .skip(3)
-            .map(|element| element.text().collect::<String>())
-            .collect::<Vec<_>>()
-    };
+    let problem_names = get_problems(&table);
     let mut teams = HashMap::new();
     let runs = {
-        let rows = table
-            .find_first("tbody")
-            .map(|body| body.find_all("tr"))
-            .unwrap_or(Vec::new());
+        let rows = get_standings_rows(&table, 6 + problem_names.len());
         let mut runs = rows
             .into_iter()
-            .filter(|row| {
-                !row.has_class(
-                    &LocalName::from("table2-header"),
-                    CaseSensitivity::AsciiCaseInsensitive,
-                )
-            })
             .map(|row| {
                 let columns = row.find_all("td").into_iter().collect::<Vec<_>>();
-                let name = columns[1]
-                    .find_first("div")
-                    .unwrap()
-                    .get_text()
-                    .trim()
-                    .to_string();
+                if columns.is_empty() || columns.iter().any(|cell| is_header2(cell)) {
+                    return Vec::new();
+                }
+                let name = get_name_from_cell(&columns[1]);
                 let id = teams.len().to_string();
                 teams.insert(
                     id.clone(),
@@ -96,50 +88,7 @@ pub(crate) fn parse_kattis(s: String) -> Contest {
                 );
                 // let solved = columns[4].convert_text::<usize>();
                 // let penalty = columns[5].convert_text::<usize>();
-                columns
-                    .into_iter()
-                    .skip(6)
-                    .zip(0..)
-                    .map(|(cell, problem_id)| {
-                        let solved = cell.has_class(
-                            &LocalName::from("solved"),
-                            CaseSensitivity::AsciiCaseInsensitive,
-                        );
-                        let attempts = cell
-                            .find_first(".standings-table-result-cell-text")
-                            .and_then(|span| parse_first_token::<usize>(span))
-                            .unwrap_or(0);
-                        let time = if solved {
-                            cell.find_first(".standings-table-result-cell-time")
-                                .and_then(|span| parse_first_token::<usize>(span))
-                                .unwrap()
-                        } else {
-                            300
-                        };
-                        let mut runs = Vec::new();
-                        for attempt in 0..attempts {
-                            let verdict = if !solved || attempt + 1 < attempts {
-                                Verdict::REJECTED
-                            } else {
-                                Verdict::ACCEPTED
-                            };
-                            let time = if attempt + 1 < attempts {
-                                time.saturating_sub(5)
-                            } else {
-                                time
-                            } * 60;
-                            runs.push(Run {
-                                contestant_id: id.clone(),
-                                problem_id,
-                                verdict,
-                                time,
-                                attempt,
-                            })
-                        }
-                        runs
-                    })
-                    .flatten()
-                    .collect::<Vec<_>>()
+                parse_runs_for_team(columns, id)
             })
             .flatten()
             .collect::<Vec<_>>();
@@ -151,6 +100,88 @@ pub(crate) fn parse_kattis(s: String) -> Contest {
         runs,
         problem_names,
     }
+}
+
+fn get_name_from_cell(cell: &ElementRef) -> String {
+    cell.find_first("div")
+        .unwrap()
+        .get_text()
+        .trim()
+        .to_string()
+}
+
+fn parse_runs_for_team(columns: Vec<ElementRef>, id: String) -> Vec<Run> {
+    columns
+        .into_iter()
+        .skip(6)
+        .zip(0..)
+        .map(|(cell, problem_id)| {
+            let solved = is_solved(&cell);
+            let attempts = get_attempts_from_cell(&cell);
+            let time = if solved {
+                get_time_from_cell(&cell)
+            } else {
+                300
+            };
+            let mut runs = Vec::new();
+            for attempt in 0..attempts {
+                let verdict = if !solved || attempt + 1 < attempts {
+                    Verdict::REJECTED
+                } else {
+                    Verdict::ACCEPTED
+                };
+                let time = if attempt + 1 < attempts {
+                    time.saturating_sub(5)
+                } else {
+                    time
+                } * 60;
+                runs.push(Run {
+                    contestant_id: id.clone(),
+                    problem_id,
+                    verdict,
+                    time,
+                    attempt,
+                })
+            }
+            runs
+        })
+        .flatten()
+        .collect::<Vec<_>>()
+}
+
+fn get_attempts_from_cell(cell: &ElementRef) -> usize {
+    cell.find_first(".standings-table-result-cell-text")
+        .and_then(|span| parse_first_token::<usize>(span))
+        .unwrap_or(0)
+}
+
+fn get_time_from_cell(cell: &ElementRef) -> usize {
+    cell.find_first(".standings-table-result-cell-time")
+        .and_then(|span| parse_first_token::<usize>(span))
+        .unwrap()
+}
+
+fn get_standings_rows<'a>(table: &'a ElementRef, expect_columns: usize) -> Vec<ElementRef<'a>> {
+    if let Some(body) = table.find_first("tbody") {
+        body.find_all("tr")
+            .into_iter()
+            .filter(|row| !is_header2(row) && row.find_all("td").len() >= expect_columns)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    }
+}
+
+fn get_problems(table: &ElementRef) -> Vec<String> {
+    let row = table
+        .find_first("thead")
+        .and_then(|head| head.find_first("tr"))
+        .unwrap();
+    row.find_all("th")
+        .into_iter()
+        .skip(3)
+        .map(|element| element.text().collect::<String>())
+        .collect::<Vec<_>>()
 }
 
 fn parse_first_token<T: FromStr>(element: ElementRef) -> Option<T> {

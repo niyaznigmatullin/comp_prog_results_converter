@@ -3,7 +3,6 @@ use html5ever::LocalName;
 use scraper::{ElementRef, Html, Selector};
 use selectors::attr::CaseSensitivity;
 use selectors::Element;
-use std::collections::HashMap;
 use std::fmt::Debug;
 use std::str::FromStr;
 
@@ -67,7 +66,7 @@ pub(crate) fn parse_kattis(s: String) -> Contest {
         .next()
         .unwrap();
     let problem_names = get_problems(&table);
-    let mut teams = HashMap::new();
+    let mut teams = Vec::new();
     let runs = {
         let rows = get_standings_rows(&table, 6 + problem_names.len());
         let mut runs = rows
@@ -79,13 +78,10 @@ pub(crate) fn parse_kattis(s: String) -> Contest {
                 }
                 let name = get_name_from_cell(&columns[1]);
                 let id = teams.len().to_string();
-                teams.insert(
-                    id.clone(),
-                    Contestant {
-                        id: id.clone(),
-                        name,
-                    },
-                );
+                teams.push(Contestant {
+                    id: id.clone(),
+                    name,
+                });
                 // let solved = columns[4].convert_text::<usize>();
                 // let penalty = columns[5].convert_text::<usize>();
                 parse_runs_for_team(columns, id)
@@ -126,9 +122,9 @@ fn parse_runs_for_team(columns: Vec<ElementRef>, id: String) -> Vec<Run> {
             let mut runs = Vec::new();
             for attempt in 0..attempts {
                 let verdict = if !solved || attempt + 1 < attempts {
-                    Verdict::REJECTED
+                    Verdict::Rejected
                 } else {
-                    Verdict::ACCEPTED
+                    Verdict::Accepted
                 };
                 let time = if attempt + 1 < attempts {
                     time.saturating_sub(5)
@@ -196,15 +192,10 @@ fn parse_first_token<T: FromStr>(element: ElementRef) -> Option<T> {
 #[cfg(test)]
 mod tests {
     use crate::standings::kattis::parse_kattis;
-    use std::fs::read_to_string;
-    use std::path::PathBuf;
+    use crate::standings::tests::tests::read_resource;
 
     fn test_file(name: &str) {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources")
-            .join(name);
-        let file = read_to_string(path).unwrap();
-        let _ = parse_kattis(file);
+        let _ = parse_kattis(read_resource(name));
     }
 
     #[test]

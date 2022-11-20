@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 
 pub struct Contestant {
     pub(crate) id: String,
@@ -14,8 +13,20 @@ pub struct Contestant {
 
 #[derive(Debug)]
 pub enum Verdict {
-    ACCEPTED,
-    REJECTED,
+    Accepted,
+    Rejected,
+    CompilationError,
+}
+
+#[cfg(test)]
+impl Verdict {
+    pub(crate) fn is_rejected(&self) -> bool {
+        matches!(self, Self::Rejected)
+    }
+
+    pub(crate) fn is_accepted(&self) -> bool {
+        matches!(self, Self::Accepted)
+    }
 }
 
 // pub struct ProblemResult {
@@ -34,7 +45,7 @@ pub(crate) struct Run {
 }
 
 pub(crate) struct Contest {
-    pub(crate) contestants: HashMap<String, Contestant>,
+    pub(crate) contestants: Vec<Contestant>,
     // standings: HashMap<String, StandingsRow>,
     pub(crate) runs: Vec<Run>,
     pub(crate) problem_names: Vec<String>,
